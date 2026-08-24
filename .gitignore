@@ -1,0 +1,15 @@
+/build/
+/cmake-build-*/
+/.cache/
+/compile_commands.json
+*.o
+*.a
+*.dylib
+*.so
+state.json
+*.state.json
+/tools/interop/interop
+/tools/interop/tsnet_join
+/tools/interop/tsnet_two_node
+/tools/interop/go.sum
+.DS_Store
