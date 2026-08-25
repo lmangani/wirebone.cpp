@@ -1,8 +1,6 @@
 # wirebone.cpp
 
-Embeddable Tailscale/Headscale-compatible **control plane** for C++ (and DuckDB via [QuackScale](https://github.com/Query-farm/quackscale)).
-
-Existing clients stay unchanged: QuackScale already embeds libtailscale/tsnet. Point `control_url` at this process instead of Tailscale SaaS or a Headscale process.
+Embeddable Tailscale/Headscale-compatible **control plane** for C++ 
 
 ## What it does
 
