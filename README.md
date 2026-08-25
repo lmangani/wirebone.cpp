@@ -2,9 +2,7 @@
 
 Embeddable Tailscale/Headscale-compatible **control plane** for C++ (and DuckDB via [QuackScale](https://github.com/Query-farm/quackscale)).
 
-Existing clients stay unchanged: QuackScale already embeds libtailscale/tsnet. Point `control_url` at a Wirebone coordinator instead of Tailscale SaaS or a Headscale process.
-
-One database node hosts the coordinator. That same process can also join the mesh as a client.
+Existing clients stay unchanged: QuackScale already embeds libtailscale/tsnet. Point `control_url` at this process instead of Tailscale SaaS or a Headscale process.
 
 ## What it does
 
@@ -12,7 +10,7 @@ One database node hosts the coordinator. That same process can also join the mes
 - `POST /ts2021` — HTTP upgrade, Noise IK, HTTP/2
 - `POST /machine/register` — preauth keys, `100.64.0.0/10` (+ IPv6) allocation
 - `POST /machine/map` — netmap long-poll, keepalives, peer fan-out
-- MagicDNS — `DNSConfig.Proxied` plus a UDP resolver (`hostname.wirebone.local`)
+- MagicDNS — `DNSConfig.Proxied` plus an optional UDP resolver
 
 Tested against capability versions **106–131** (libtailscale / Tailscale 1.94).
 
@@ -34,24 +32,26 @@ Needs OpenSSL 3, nghttp2, libzstd (pkg-config).
 ./build/wirebone nodes list --state /var/lib/wirebone/state.json
 ```
 
-## QuackScale: coordinator and client
+## QuackScale
 
-On the coordinator node, start Wirebone then join as a client:
+Check out this repo next to `quackscale` (or pass `-DQUACKSCALE_WIREBONE_DIR`) and rebuild. Operators learn two SQL verbs:
+
+| Job | Call |
+|-----|------|
+| This node is the hub | `CALL quackscale_hub(...)` |
+| This node is a peer | `CALL tailscale_up(...)` |
 
 ```sql
 LOAD quackscale;
 
--- control plane + client in this process
-CALL quackscale_serve(
-    hostname          => 'duckdb-coord',
-    listen            => '0.0.0.0:8080',
-    server_url        => 'http://10.0.0.5:8080',
-    state_dir         => '/var/lib/duckdb/tailscale',
-    domain            => 'wirebone.local'
+CALL quackscale_hub(
+    hostname   => 'duckdb-coord',
+    listen     => '0.0.0.0:8080',
+    server_url => 'http://10.0.0.5:8080',
+    state_dir  => '/var/lib/duckdb/tailscale'
 );
+SELECT * FROM quackscale.nodes;
 ```
-
-Or two calls: `CALL wirebone_serve(...)` then `CALL tailscale_up(control_url => 'http://127.0.0.1:8080', authkey => wirebone_bootstrap_key(), ...)`.
 
 Peers only join:
 
@@ -59,14 +59,14 @@ Peers only join:
 CALL tailscale_up(
     hostname    => 'duckdb-node-b',
     control_url => 'http://10.0.0.5:8080',
-    authkey     => 'wbkey-...',
+    authkey     => 'wbkey-…',
     state_dir   => '/var/lib/duckdb/tailscale'
 );
 ```
 
-MagicDNS names are `hostname.wirebone.local` (and the short hostname via search domain). QuackScale can `ATTACH 'quack:duckdb-coord.wirebone.local:9494'`.
+MagicDNS names are `hostname.quackscale.local`. `CALL quackscale_hub(..., join => false)` is control plane only.
 
-C ABI for embedding: [`include/wirebone/wirebone.h`](include/wirebone/wirebone.h). SQL (`wirebone_serve`, `quackscale_serve`, …) lives in [QuackScale](https://github.com/Query-farm/quackscale): check out this repo next to `quackscale` (or set `QUACKSCALE_WIREBONE_DIR`) and rebuild the extension.
+C ABI: [`include/wirebone/wirebone.h`](include/wirebone/wirebone.h). SQL lives in QuackScale (`docs/REFERENCE.md`, `examples/wirebone/`).
 
 ## Proof
 
