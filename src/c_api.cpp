@@ -73,11 +73,25 @@ char* wirebone_bootstrap_key(const wirebone_coordinator* c) {
     return c ? dup_str(c->impl.bootstrap_preauth_key()) : nullptr;
 }
 char* wirebone_create_preauth_key(wirebone_coordinator* c, int reusable, int ephemeral) {
+    return wirebone_create_preauth_key_ex(c, reusable, ephemeral, nullptr, -1);
+}
+
+char* wirebone_create_preauth_key_ex(wirebone_coordinator* c, int reusable, int ephemeral,
+                                     const char* token, int shared) {
     if (!c) {
         return nullptr;
     }
     try {
-        return dup_str(c->impl.create_preauth_key({reusable != 0, ephemeral != 0, {}}));
+        wirebone::PreauthOptions opts;
+        opts.reusable = reusable != 0;
+        opts.ephemeral = ephemeral != 0;
+        if (token && token[0]) {
+            opts.token = token;
+        }
+        if (shared >= 0) {
+            opts.shared = shared != 0;
+        }
+        return dup_str(c->impl.create_preauth_key(opts));
     } catch (...) {
         return nullptr;
     }
@@ -108,6 +122,8 @@ wirebone_node_info* wirebone_list_nodes(const wirebone_coordinator* c, size_t* c
         out[i].ipv6 = dup_str(nodes[i].ipv6);
         out[i].node_key = dup_str(nodes[i].node_key);
         out[i].online = nodes[i].online ? 1 : 0;
+        out[i].token = dup_str(nodes[i].token);
+        out[i].shared = nodes[i].shared ? 1 : 0;
     }
     *count = nodes.size();
     return out;
@@ -164,6 +180,7 @@ void wirebone_free_nodes(wirebone_node_info* nodes, size_t count) {
         std::free(nodes[i].ipv4);
         std::free(nodes[i].ipv6);
         std::free(nodes[i].node_key);
+        std::free(nodes[i].token);
     }
     std::free(nodes);
 }

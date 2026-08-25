@@ -120,13 +120,14 @@ public:
     ~Impl() { stop(); }
 
     std::string create_preauth_key(PreauthOptions opts) {
-        return store_.create_preauth_key(opts.reusable, opts.ephemeral, opts.expiration);
+        return store_.create_preauth_key(opts.reusable, opts.ephemeral, opts.expiration, opts.token,
+                                         opts.shared);
     }
 
     std::vector<PreauthInfo> list_preauth_keys() const {
         std::vector<PreauthInfo> out;
         for (const auto& k : store_.preauth_keys()) {
-            out.push_back(PreauthInfo{k.key, k.reusable, k.ephemeral, k.used});
+            out.push_back(PreauthInfo{k.key, k.reusable, k.ephemeral, k.used, k.token, k.shared});
         }
         return out;
     }
@@ -145,6 +146,8 @@ public:
             i.ipv6 = n.ipv6;
             i.endpoints = n.endpoints;
             i.online = n.online;
+            i.token = n.token;
+            i.shared = n.shared;
             out.push_back(std::move(i));
         }
         return out;
@@ -402,8 +405,9 @@ private:
             auth = req.value("AuthKey", "");
         }
         bool ephemeral = req.value("Ephemeral", false);
+        PreauthClaim claim;
         if (!store_.find_by_machine(machine_key)) {
-            if (auth.empty() || !store_.consume_preauth(auth, ephemeral)) {
+            if (auth.empty() || !store_.consume_preauth(auth, claim)) {
                 const auto denied = nlohmann::json{
                     {"User", user_profile()},
                     {"Login", login_profile()},
@@ -413,10 +417,19 @@ private:
                 h2.reply(sid, 200, "application/json", {denied.begin(), denied.end()});
                 return;
             }
+            ephemeral = claim.ephemeral;
         }
-        const auto node = store_.register_node(machine_key, node_key, host, ephemeral);
+        const auto node =
+            store_.register_node(machine_key, node_key, host, ephemeral, claim.token, claim.shared);
         bump_map();
-        std::cerr << "wirebone: register " << host << " " << node.ipv4 << '\n';
+        std::cerr << "wirebone: register " << host << " " << node.ipv4;
+        if (!node.token.empty()) {
+            std::cerr << " token=" << node.token;
+        }
+        if (node.shared) {
+            std::cerr << " shared";
+        }
+        std::cerr << '\n';
         const auto ok = build_register_response().dump();
         h2.reply(sid, 200, "application/json", {ok.begin(), ok.end()});
     }

@@ -1,6 +1,7 @@
 #include "state.hpp"
 
 #include <fstream>
+#include <optional>
 #include <random>
 #include <sstream>
 #include <stdexcept>
@@ -18,6 +19,22 @@ std::int64_t now_unix() {
     return std::chrono::duration_cast<std::chrono::seconds>(
                std::chrono::system_clock::now().time_since_epoch())
         .count();
+}
+
+PreauthKey key_from_json(const nlohmann::json& k) {
+    PreauthKey p;
+    p.key = k.value("key", "");
+    p.reusable = k.value("reusable", true);
+    p.ephemeral = k.value("ephemeral", false);
+    p.used = k.value("used", false);
+    p.expires_unix = k.value("expires_unix", 0);
+    p.token = k.value("token", "");
+    p.shared = k.value("shared", p.token.empty());
+    return p;
+}
+
+bool resolve_shared(const std::string& token, std::optional<bool> shared) {
+    return shared.value_or(token.empty());
 }
 
 }  // namespace
@@ -80,6 +97,8 @@ nlohmann::json Store::snapshot_locked() const {
             {"ephemeral", k.ephemeral},
             {"used", k.used},
             {"expires_unix", k.expires_unix},
+            {"token", k.token},
+            {"shared", k.shared},
         });
     }
     j["nodes"] = nlohmann::json::array();
@@ -96,6 +115,8 @@ nlohmann::json Store::snapshot_locked() const {
             {"endpoints", n.endpoints},
             {"ephemeral", n.ephemeral},
             {"online", n.online},
+            {"token", n.token},
+            {"shared", n.shared},
         });
     }
     return j;
@@ -111,13 +132,7 @@ void Store::apply_snapshot_locked(const nlohmann::json& j) {
     keys_.clear();
     if (j.contains("preauth_keys")) {
         for (const auto& k : j["preauth_keys"]) {
-            keys_.push_back(PreauthKey{
-                k.value("key", ""),
-                k.value("reusable", true),
-                k.value("ephemeral", false),
-                k.value("used", false),
-                k.value("expires_unix", 0),
-            });
+            keys_.push_back(key_from_json(k));
         }
     }
     nodes_.clear();
@@ -134,6 +149,8 @@ void Store::apply_snapshot_locked(const nlohmann::json& j) {
             node.ipv6 = n.value("ipv6", "");
             node.ephemeral = n.value("ephemeral", false);
             node.online = n.value("online", false);
+            node.token = n.value("token", "");
+            node.shared = n.value("shared", node.token.empty());
             if (n.contains("endpoints")) {
                 node.endpoints = n["endpoints"].get<std::vector<std::string>>();
             }
@@ -194,12 +211,15 @@ std::string Store::noise_public_text() const {
 }
 
 std::string Store::create_preauth_key(bool reusable, bool ephemeral,
-                                      std::chrono::seconds expiration) {
+                                      std::chrono::seconds expiration, std::string token,
+                                      std::optional<bool> shared) {
     std::lock_guard<std::mutex> lock(mu_);
     PreauthKey k;
     k.key = random_token();
     k.reusable = reusable;
     k.ephemeral = ephemeral;
+    k.token = std::move(token);
+    k.shared = resolve_shared(k.token, shared);
     if (expiration.count() > 0) {
         k.expires_unix = now_unix() + expiration.count();
     }
@@ -233,17 +253,20 @@ void Store::reload_keys_from_disk() {
     std::lock_guard<std::mutex> lock(mu_);
     keys_.clear();
     for (const auto& k : j["preauth_keys"]) {
-        keys_.push_back(PreauthKey{
-            k.value("key", ""),
-            k.value("reusable", true),
-            k.value("ephemeral", false),
-            k.value("used", false),
-            k.value("expires_unix", 0),
-        });
+        keys_.push_back(key_from_json(k));
     }
 }
 
 bool Store::consume_preauth(const std::string& key, bool& ephemeral) {
+    PreauthClaim claim;
+    if (!consume_preauth(key, claim)) {
+        return false;
+    }
+    ephemeral = claim.ephemeral;
+    return true;
+}
+
+bool Store::consume_preauth(const std::string& key, PreauthClaim& claim) {
     reload_keys_from_disk();
     std::lock_guard<std::mutex> lock(mu_);
     const auto now = now_unix();
@@ -258,7 +281,9 @@ bool Store::consume_preauth(const std::string& key, bool& ephemeral) {
             return false;
         }
         k.used = true;
-        ephemeral = k.ephemeral;
+        claim.ephemeral = k.ephemeral;
+        claim.token = k.token;
+        claim.shared = k.shared;
         save_locked();
         return true;
     }
@@ -266,7 +291,8 @@ bool Store::consume_preauth(const std::string& key, bool& ephemeral) {
 }
 
 NodeState Store::register_node(const std::string& machine_key, const std::string& node_key,
-                               const std::string& hostname, bool ephemeral) {
+                               const std::string& hostname, bool ephemeral, std::string token,
+                               bool shared) {
     std::lock_guard<std::mutex> lock(mu_);
     for (auto& n : nodes_) {
         if (n.machine_key == machine_key) {
@@ -286,6 +312,8 @@ NodeState Store::register_node(const std::string& machine_key, const std::string
     n.machine_key = machine_key;
     n.node_key = node_key;
     n.ephemeral = ephemeral;
+    n.token = std::move(token);
+    n.shared = shared;
     const auto [v4, v6] = alloc_.address_for(next_ip_index_++);
     n.ipv4 = v4;
     n.ipv6 = v6;

@@ -28,6 +28,9 @@ struct PreauthOptions {
     bool reusable = true;
     bool ephemeral = false;
     std::chrono::seconds expiration{0};
+    std::string token;
+    // nullopt: shared when token is empty (hub / untagged keys).
+    std::optional<bool> shared;
 };
 
 struct NodeInfo {
@@ -41,6 +44,8 @@ struct NodeInfo {
     std::string ipv6;
     std::vector<std::string> endpoints;
     bool online = false;
+    std::string token;
+    bool shared = false;
 };
 
 struct PreauthInfo {
@@ -48,6 +53,8 @@ struct PreauthInfo {
     bool reusable = true;
     bool ephemeral = false;
     bool used = false;
+    std::string token;
+    bool shared = false;
 };
 
 class Coordinator {

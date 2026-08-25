@@ -15,6 +15,7 @@ void usage() {
         "  wirebone serve [--listen HOST:PORT] [--url URL] [--state PATH]\n"
         "                 [--domain NAME] [--dns HOST:PORT]\n"
         "  wirebone preauth create [--state PATH] [--one-shot] [--ephemeral]\n"
+        "                          [--token ID] [--shared|--no-shared]\n"
         "  wirebone nodes list [--state PATH]\n";
 }
 
@@ -77,8 +78,16 @@ int main(int argc, char** argv) {
     if (cmd == "preauth" && argc >= 3 && std::string(argv[2]) == "create") {
         auto cfg = cfg_from_args(argc, argv);
         wirebone::Coordinator coord(cfg);
-        const auto key = coord.create_preauth_key(
-            {!flag(argc, argv, "--one-shot"), flag(argc, argv, "--ephemeral"), {}});
+        wirebone::PreauthOptions opts;
+        opts.reusable = !flag(argc, argv, "--one-shot");
+        opts.ephemeral = flag(argc, argv, "--ephemeral");
+        opts.token = opt(argc, argv, "--token", "");
+        if (flag(argc, argv, "--shared")) {
+            opts.shared = true;
+        } else if (flag(argc, argv, "--no-shared")) {
+            opts.shared = false;
+        }
+        const auto key = coord.create_preauth_key(opts);
         std::cout << key << '\n';
         return 0;
     }
@@ -87,7 +96,7 @@ int main(int argc, char** argv) {
         wirebone::Coordinator coord(cfg);
         for (const auto& n : coord.list_nodes()) {
             std::cout << n.id << '\t' << n.hostname << '\t' << n.ipv4 << '\t' << n.ipv6 << '\t'
-                      << n.node_key << '\n';
+                      << n.node_key << '\t' << n.token << '\t' << (n.shared ? "shared" : "") << '\n';
         }
         return 0;
     }

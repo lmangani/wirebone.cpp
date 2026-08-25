@@ -16,6 +16,16 @@ using duckdb_zstd::ZSTD_isError;
 
 namespace wirebone {
 
+bool node_visible_to(const NodeState& self, const NodeState& peer) {
+    if (self.id == peer.id) {
+        return true;
+    }
+    if (self.shared || peer.shared) {
+        return true;
+    }
+    return self.token == peer.token;
+}
+
 std::string rfc3339_now() {
     const auto now = std::chrono::system_clock::now();
     const std::time_t t = std::chrono::system_clock::to_time_t(now);
@@ -104,31 +114,62 @@ nlohmann::json default_derp_map() {
 nlohmann::json build_full_map(const NodeState& self, const std::vector<NodeState>& all,
                               const std::string& domain) {
     nlohmann::json peers = nlohmann::json::array();
+    nlohmann::json extra = nlohmann::json::array();
+    nlohmann::json src_ips = nlohmann::json::array();
+    nlohmann::json dst_ports = nlohmann::json::array();
+
+    auto add_filter_ips = [&](const NodeState& n) {
+        if (n.ipv4.empty() && n.ipv6.empty()) {
+            return;
+        }
+        if (!n.ipv4.empty()) {
+            const std::string cidr = n.ipv4 + "/32";
+            src_ips.push_back(cidr);
+            dst_ports.push_back(
+                nlohmann::json{{"IP", cidr}, {"Ports", {{"First", 0}, {"Last", 65535}}}});
+        }
+        if (!n.ipv6.empty()) {
+            const std::string cidr = n.ipv6 + "/128";
+            src_ips.push_back(cidr);
+            dst_ports.push_back(
+                nlohmann::json{{"IP", cidr}, {"Ports", {{"First", 0}, {"Last", 65535}}}});
+        }
+    };
+
+    auto add_dns = [&](const NodeState& n) {
+        std::string host = n.hostname.empty() ? ("node-" + n.stable_id) : n.hostname;
+        extra.push_back(nlohmann::json{{"Name", host + "." + domain}, {"Type", "A"}, {"Value", n.ipv4}});
+        extra.push_back(
+            nlohmann::json{{"Name", host + "." + domain}, {"Type", "AAAA"}, {"Value", n.ipv6}});
+    };
+
     for (const auto& n : all) {
+        if (!node_visible_to(self, n)) {
+            continue;
+        }
+        add_filter_ips(n);
+        add_dns(n);
         if (n.id == self.id) {
             continue;
         }
         peers.push_back(node_to_tailcfg(n, domain, false));
     }
-    const std::string now = rfc3339_now();
+
     nlohmann::json allow = nlohmann::json::array({nlohmann::json{
-        {"SrcIPs", nlohmann::json::array({"*"})},
+        {"SrcIPs", src_ips.empty() ? nlohmann::json::array({"*"}) : src_ips},
         {"DstPorts",
-         nlohmann::json::array({nlohmann::json{{"IP", "*"}, {"Ports", {{"First", 0}, {"Last", 65535}}}}})},
+         dst_ports.empty()
+             ? nlohmann::json::array(
+                   {nlohmann::json{{"IP", "*"}, {"Ports", {{"First", 0}, {"Last", 65535}}}}})
+             : dst_ports},
     }});
+    const std::string now = rfc3339_now();
     nlohmann::json resp;
     resp["KeepAlive"] = false;
     resp["ControlTime"] = now;
     resp["Node"] = node_to_tailcfg(self, domain, true);
     resp["DERPMap"] = default_derp_map();
     resp["Peers"] = peers;
-    nlohmann::json extra = nlohmann::json::array();
-    for (const auto& n : all) {
-        std::string host = n.hostname.empty() ? ("node-" + n.stable_id) : n.hostname;
-        extra.push_back(nlohmann::json{{"Name", host + "." + domain}, {"Type", "A"}, {"Value", n.ipv4}});
-        extra.push_back(
-            nlohmann::json{{"Name", host + "." + domain}, {"Type", "AAAA"}, {"Value", n.ipv6}});
-    }
     resp["DNSConfig"] = nlohmann::json{
         {"Resolvers", nlohmann::json::array()},
         {"FallbackResolvers", nlohmann::json::array()},

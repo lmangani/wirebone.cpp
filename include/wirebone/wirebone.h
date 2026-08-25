@@ -26,6 +26,8 @@ typedef struct wirebone_node_info {
     char* ipv6;
     char* node_key;
     int online;
+    char* token; /* mesh group; empty = untagged / hub plane */
+    int shared;  /* visible to every group */
 } wirebone_node_info;
 
 wirebone_coordinator* wirebone_create(const wirebone_config* cfg);
@@ -40,6 +42,9 @@ int wirebone_running(const wirebone_coordinator* c);
 char* wirebone_bound_address(const wirebone_coordinator* c);
 char* wirebone_bootstrap_key(const wirebone_coordinator* c);
 char* wirebone_create_preauth_key(wirebone_coordinator* c, int reusable, int ephemeral);
+/* token may be NULL. shared: 1=true, 0=false, -1=default (shared when token is empty). */
+char* wirebone_create_preauth_key_ex(wirebone_coordinator* c, int reusable, int ephemeral,
+                                     const char* token, int shared);
 char* wirebone_noise_public_key(const wirebone_coordinator* c);
 
 /* Caller must wirebone_free_nodes() the returned array. count may be 0. */

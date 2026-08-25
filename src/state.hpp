@@ -22,6 +22,16 @@ struct PreauthKey {
     bool ephemeral = false;
     bool used = false;
     std::int64_t expires_unix = 0;
+    // Mesh group id. Same string as the Quack token is the intended operator model.
+    std::string token;
+    // Visible to every group (the hub). Default true when token is empty.
+    bool shared = false;
+};
+
+struct PreauthClaim {
+    bool ephemeral = false;
+    std::string token;
+    bool shared = false;
 };
 
 struct NodeState {
@@ -36,6 +46,8 @@ struct NodeState {
     std::vector<std::string> endpoints;
     bool online = false;
     bool ephemeral = false;
+    std::string token;
+    bool shared = false;
 };
 
 class Store {
@@ -45,13 +57,16 @@ public:
     Bytes32 noise_private() const;
     std::string noise_public_text() const;
 
-    std::string create_preauth_key(bool reusable, bool ephemeral, std::chrono::seconds expiration);
+    std::string create_preauth_key(bool reusable, bool ephemeral, std::chrono::seconds expiration,
+                                   std::string token = {}, std::optional<bool> shared = std::nullopt);
     std::vector<PreauthKey> preauth_keys() const;
     bool consume_preauth(const std::string& key, bool& ephemeral);
+    bool consume_preauth(const std::string& key, PreauthClaim& claim);
     void reload_keys_from_disk();
 
     NodeState register_node(const std::string& machine_key, const std::string& node_key,
-                            const std::string& hostname, bool ephemeral);
+                            const std::string& hostname, bool ephemeral, std::string token = {},
+                            bool shared = false);
     std::optional<NodeState> find_by_machine(const std::string& machine_key) const;
     std::optional<NodeState> find_by_node(const std::string& node_key) const;
     std::vector<NodeState> nodes() const;
