@@ -73,4 +73,4 @@ cmake --build build -j
 ./examples/quackscale-e2e/run.sh
 ```
 
-That script starts Wirebone and runs two [tsnet](https://pkg.go.dev/tailscale.com/tsnet) nodes (the same stack QuackScale embeds). If `duckdb` + quackscale are installed it also runs `CALL tailscale_up`.
+That script starts Wirebone and runs two [tsnet](https://pkg.go.dev/tailscale.com/tsnet) nodes (the same stack QuackScale embeds).
